@@ -1,0 +1,10 @@
+{
+  "name": "FriendChat",
+  "description": "Cyber Monolith secret link chat with real-time peer communication, clipboard copy-paste support for text and images, document & PDF sharing, self-destruct timers, host burn control, open room approval verification, and live voice chat.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

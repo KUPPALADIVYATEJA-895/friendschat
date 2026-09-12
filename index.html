@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content, viewport-fit=cover" />
+    <title>FriendChat — Cyber Monolith Secret Link</title>
+    <meta name="description" content="Cyber Monolith secret link chat with real-time peer communication, clipboard copy-paste support for text and images, document & PDF sharing, self-destruct timers, host burn control, open room approval verification, and live voice chat." />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#09090b" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="FriendChat" />
+    <script>
+      (function() {
+        // Mock Vite HMR WebSocket so that disabled HMR in iframe/preview never triggers connection errors or unhandled rejections
+        var OrigWebSocket = window.WebSocket;
+        if (OrigWebSocket) {
+          window.WebSocket = function(url, protocols) {
+            var isViteHmr = protocols === 'vite-hmr' || 
+              (Array.isArray(protocols) && protocols.indexOf('vite-hmr') !== -1) ||
+              (typeof url === 'string' && (url.indexOf('/@vite') !== -1 || url.indexOf('token=') !== -1));
+            
+            if (isViteHmr) {
+              var dummy = new EventTarget();
+              dummy.binaryType = 'blob';
+              dummy.readyState = 1;
+              dummy.bufferedAmount = 0;
+              dummy.extensions = '';
+              dummy.protocol = 'vite-hmr';
+              dummy.url = String(url);
+              dummy.send = function() {};
+              dummy.close = function() {};
+              dummy.addEventListener = EventTarget.prototype.addEventListener.bind(dummy);
+              dummy.removeEventListener = EventTarget.prototype.removeEventListener.bind(dummy);
+              setTimeout(function() {
+                if (typeof dummy.onopen === 'function') dummy.onopen(new Event('open'));
+                dummy.dispatchEvent(new Event('open'));
+              }, 10);
+              return dummy;
+            }
+            return new OrigWebSocket(url, protocols);
+          };
+          window.WebSocket.prototype = OrigWebSocket.prototype;
+          window.WebSocket.CONNECTING = OrigWebSocket.CONNECTING;
+          window.WebSocket.OPEN = OrigWebSocket.OPEN;
+          window.WebSocket.CLOSING = OrigWebSocket.CLOSING;
+          window.WebSocket.CLOSED = OrigWebSocket.CLOSED;
+        }
+
+        // Suppress benign Vite HMR notices in console
+        var origConsoleError = console.error;
+        console.error = function() {
+          var args = Array.prototype.slice.call(arguments);
+          var str = args.map(function(a) { return (a && a.message) || String(a); }).join(' ');
+          if (str.indexOf('failed to connect to websocket') !== -1 || str.indexOf('WebSocket closed without opened') !== -1) {
+            return;
+          }
+          origConsoleError.apply(console, args);
+        };
+
+        // Suppress unhandled rejection events from WebSocket closure
+        window.addEventListener('unhandledrejection', function(event) {
+          var reason = event && event.reason;
+          var msg = String((reason && reason.message) || reason || '');
+          if (msg.indexOf('WebSocket closed without opened') !== -1 || msg.indexOf('websocket') !== -1 || msg.indexOf('vite') !== -1) {
+            if (event.preventDefault) event.preventDefault();
+            if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+            return true;
+          }
+        }, true);
+
+        // Suppress global error events from WebSocket
+        window.addEventListener('error', function(event) {
+          var msg = String((event && event.message) || '');
+          if (msg.indexOf('WebSocket closed without opened') !== -1 || msg.indexOf('failed to connect to websocket') !== -1) {
+            if (event.preventDefault) event.preventDefault();
+            if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+            return true;
+          }
+        }, true);
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  </head>
+  <body class="bg-[#09090b] text-[#f4f4f5] antialiased selection:bg-white/20 selection:text-white overflow-x-hidden min-h-screen">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

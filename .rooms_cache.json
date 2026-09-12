@@ -1,0 +1,52 @@
+[
+  {
+    "id": "room_0249be",
+    "code": "0249BE",
+    "name": "FriendChat Monolith",
+    "hostId": "host_0249be",
+    "hostName": "Cyber Host",
+    "hostSecret": "secret_0249be",
+    "timer": "none",
+    "openToJoin": true,
+    "liveVoiceEnabled": true,
+    "createdAt": 1789054900000,
+    "participants": [
+      {
+        "id": "host_0249be",
+        "name": "Cyber Host",
+        "isHost": true,
+        "joinedAt": 1789054900000,
+        "lastActive": 1789054900000,
+        "isMuted": false,
+        "isSpeaking": false
+      }
+    ],
+    "messages": [],
+    "pendingRequests": []
+  },
+  {
+    "id": "KmnYmCQnLID5EVCrK8aqOA",
+    "code": "1587RJ",
+    "name": "Tester's Monolith",
+    "hostId": "14de9ed3-ba4f-4e60-b694-f54a168d148f",
+    "hostName": "Tester",
+    "hostSecret": "20008eb29223019b5f2ad9a8775d9e51f79db45ecda83d53",
+    "timer": "none",
+    "openToJoin": true,
+    "liveVoiceEnabled": false,
+    "createdAt": 1789054960638,
+    "participants": [
+      {
+        "id": "14de9ed3-ba4f-4e60-b694-f54a168d148f",
+        "name": "Tester",
+        "isHost": true,
+        "joinedAt": 1789054960638,
+        "lastActive": 1789054960638,
+        "isMuted": false,
+        "isSpeaking": false
+      }
+    ],
+    "messages": [],
+    "pendingRequests": []
+  }
+]

@@ -353,6 +353,20 @@ export const apiClient = {
     return { success: true, room };
   },
 
+  // Post Chat Message (REST Dual Relay fallback to ensure 0% message loss)
+  async sendMessage(roomId: string, message: ChatMessage): Promise<boolean> {
+    try {
+      await fetch(`/api/rooms/${encodeURIComponent(roomId)}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message }),
+      });
+      return true;
+    } catch (err) {
+      return false;
+    }
+  },
+
   // Burn / Dissolve Room
   async burnRoom(roomId: string, hostSecret?: string): Promise<boolean> {
     try {

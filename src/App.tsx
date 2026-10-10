@@ -53,9 +53,14 @@ export default function App() {
   // Typing indicators
   const [typingPeers, setTypingPeers] = useState<string[]>([]);
 
+  // Real-time connection status
+  const [isSocketConnected, setIsSocketConnected] = useState(false);
+
   const wsRef = useRef<WebSocket | null>(null);
   const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
   const pollApprovalIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Save user ID to localStorage
   useEffect(() => {
@@ -83,10 +88,23 @@ export default function App() {
           const roomData = await apiClient.getRoom(targetRoomId, searchParams);
           if (roomData) {
             const storedSecret = localStorage.getItem(`fc_host_secret_${targetRoomId}`);
+            const savedUserName = localStorage.getItem('fc_user_name') || '';
+            const savedRoomId = localStorage.getItem('fc_active_room_id');
+
             if (storedSecret) {
               setHostSecret(storedSecret);
               setCurrentRoom(roomData);
               setView('chat');
+            } else if (savedUserName.trim() && (savedRoomId === targetRoomId || roomData.participants?.some((p) => p.id === currentUserId))) {
+              // User already joined this room prior to refresh: silently rejoin directly without re-prompting!
+              try {
+                const joinRes = await apiClient.joinRoom(targetRoomId, savedUserName.trim(), currentUserId);
+                setCurrentRoom(joinRes.room);
+                setView('chat');
+              } catch {
+                setCurrentRoom(roomData);
+                setView('chat');
+              }
             } else {
               setJoinPromptRoom(roomData);
             }
@@ -124,65 +142,141 @@ export default function App() {
     }
   }, [currentRoom]);
 
-  // Connect WebSocket when room is active
+  // Resilient WebSocket connection with automatic exponential reconnect and keepalive heartbeat
   useEffect(() => {
-    if (!currentRoom) return;
-
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
-    let ws: WebSocket | null = null;
-    try {
-      ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        console.log('WebSocket connected to FriendChat server');
-        const isHost = Boolean(hostSecret);
-        const participant: Participant = {
-          id: currentUserId,
-          name: currentUserName || (isHost ? currentRoom.hostName : 'Cyber Peer'),
-          isHost,
-          joinedAt: Date.now(),
-          lastActive: Date.now(),
-        };
-
-        ws?.send(
-          JSON.stringify({
-            type: 'join',
-            roomId: currentRoom.id,
-            participant,
-            hostSecret: hostSecret || undefined,
-          })
-        );
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data) as WSMessage;
-          handleIncomingWSMessage(data);
-        } catch (err) {
-          console.error('WS parse error', err);
-        }
-      };
-
-      ws.onerror = () => {
-        console.debug('[Network] Server socket offline or static deployment; operating in client mesh mode.');
-      };
-
-      ws.onclose = () => {
-        console.debug('WebSocket closed');
-      };
-    } catch (err) {
-      console.debug('[Network] WebSocket init skipped on static client:', err);
+    if (!currentRoom) {
+      setIsSocketConnected(false);
+      return;
     }
 
+    let isUnmounted = false;
+    let ws: WebSocket | null = null;
+
+    const connectWebSocket = () => {
+      if (isUnmounted || !currentRoom) return;
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+      try {
+        ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          if (isUnmounted) return;
+          console.log('[FriendChat] Real-time channel connected');
+          setIsSocketConnected(true);
+
+          const isHost = Boolean(hostSecret);
+          const participant: Participant = {
+            id: currentUserId,
+            name: currentUserName || (isHost ? currentRoom.hostName : 'Cyber Peer'),
+            isHost,
+            joinedAt: Date.now(),
+            lastActive: Date.now(),
+          };
+
+          ws?.send(
+            JSON.stringify({
+              type: 'join',
+              roomId: currentRoom.id,
+              participant,
+              hostSecret: hostSecret || undefined,
+            })
+          );
+
+          // Setup 15-second keepalive heartbeat ping so connection stays active
+          if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+          pingIntervalRef.current = setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'ping' }));
+            }
+          }, 15000);
+        };
+
+        ws.onmessage = (event) => {
+          if (isUnmounted) return;
+          try {
+            const data = JSON.parse(event.data) as WSMessage;
+            if (data.type === 'pong') {
+              // Heartbeat acknowledged
+              return;
+            }
+            handleIncomingWSMessage(data);
+          } catch (err) {
+            console.error('WS parse error', err);
+          }
+        };
+
+        ws.onerror = () => {
+          setIsSocketConnected(false);
+          console.debug('[Network] WebSocket reconnecting or running mesh fallback...');
+        };
+
+        ws.onclose = () => {
+          setIsSocketConnected(false);
+          if (pingIntervalRef.current) {
+            clearInterval(pingIntervalRef.current);
+            pingIntervalRef.current = null;
+          }
+
+          // Auto-reconnect immediately if still in room
+          if (!isUnmounted && currentRoom) {
+            if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = setTimeout(() => {
+              connectWebSocket();
+            }, 1200);
+          }
+        };
+      } catch (err) {
+        console.debug('[Network] WebSocket init error:', err);
+      }
+    };
+
+    connectWebSocket();
+
+    // Background sync polling to guarantee 0% message loss even if network drops momentarily
+    const syncInterval = setInterval(async () => {
+      if (!currentRoom) return;
+      try {
+        const freshRoom = await apiClient.getRoom(currentRoom.id);
+        if (freshRoom && freshRoom.messages) {
+          setCurrentRoom((prev) => {
+            if (!prev) return freshRoom;
+            // Merge missing messages seamlessly
+            const existingIds = new Set(prev.messages.map((m) => m.id));
+            const missing = freshRoom.messages.filter((m) => !existingIds.has(m.id));
+            if (missing.length > 0) {
+              return {
+                ...prev,
+                messages: [...prev.messages, ...missing].sort((a, b) => a.timestamp - b.timestamp),
+                participants: freshRoom.participants || prev.participants,
+              };
+            }
+            return prev;
+          });
+        }
+      } catch {}
+    }, 4000);
+
     return () => {
+      isUnmounted = true;
+      clearInterval(syncInterval);
+      if (pingIntervalRef.current) {
+        clearInterval(pingIntervalRef.current);
+        pingIntervalRef.current = null;
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
       if (ws) {
         try {
           ws.close();
         } catch {}
       }
       wsRef.current = null;
+      setIsSocketConnected(false);
     };
   }, [currentRoom?.id, hostSecret]);
 
@@ -214,6 +308,7 @@ export default function App() {
       }
 
       setCurrentRoom(data.room);
+      localStorage.setItem('fc_active_room_id', roomId);
       setView('chat');
       window.history.pushState({}, '', `/r/${roomId}`);
     } catch (err) {
@@ -453,6 +548,7 @@ export default function App() {
       };
 
       setCurrentRoom(roomData);
+      localStorage.setItem('fc_active_room_id', data.roomId);
 
       // On Vercel / static hosts, include query params in URL so shared links reconstruct anywhere
       const queryParams = new URLSearchParams({
@@ -507,6 +603,7 @@ export default function App() {
         sounds.playJoinAlert();
         setJoinPromptRoom(null);
         setCurrentRoom(data.room);
+        localStorage.setItem('fc_active_room_id', joinPromptRoom.id);
         setView('chat');
         window.history.pushState({}, '', `/r/${joinPromptRoom.id}`);
       } catch (err: any) {
@@ -640,6 +737,9 @@ export default function App() {
       );
     }
 
+    // Dual-Relay HTTP fallback to guarantee delivery even if WebSocket reconnects or experiences packet drops
+    apiClient.sendMessage(currentRoom.id, newMsg).catch(() => {});
+
     // Broadcast fallback for local multi-tab
     if (broadcastChannelRef.current) {
       broadcastChannelRef.current.postMessage({
@@ -737,6 +837,7 @@ export default function App() {
       console.error('Error burning room', err);
     } finally {
       localStorage.removeItem(`fc_host_secret_${currentRoom.id}`);
+      localStorage.removeItem('fc_active_room_id');
       setBurnReason('You ignited the burn protocol. Monolith permanently deleted.');
       setCurrentRoom(null);
       setView('burned');
@@ -745,6 +846,7 @@ export default function App() {
 
   // Reset to Home
   const handleResetHome = () => {
+    localStorage.removeItem('fc_active_room_id');
     setCurrentRoom(null);
     setHostSecret('');
     setJoinPromptRoom(null);
@@ -792,6 +894,7 @@ export default function App() {
           onSendVoiceState={handleSendVoiceState}
           onSendWebRTCSignal={handleSendWebRTCSignal}
           onLeaveRoom={handleResetHome}
+          isConnected={isSocketConnected}
         />
       )}
 

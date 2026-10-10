@@ -67,6 +67,7 @@ interface ChatRoomPageProps {
   onSendVoiceState?: (isMuted: boolean, isSpeaking: boolean) => void;
   onSendWebRTCSignal?: (targetId: string, signal: any) => void;
   onLeaveRoom?: () => void;
+  isConnected?: boolean;
 }
 
 export const ChatRoomPage: React.FC<ChatRoomPageProps> = ({
@@ -82,6 +83,7 @@ export const ChatRoomPage: React.FC<ChatRoomPageProps> = ({
   onSendVoiceState,
   onSendWebRTCSignal,
   onLeaveRoom,
+  isConnected = true,
 }) => {
   const [inputText, setInputText] = useState('');
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -812,9 +814,13 @@ export const ChatRoomPage: React.FC<ChatRoomPageProps> = ({
               >
                 {room.name || `${room.hostName}'s Monolith`}
               </h1>
-              <span className="hidden sm:inline-flex items-center gap-1 text-[8px] px-1.5 py-0.2 rounded-sm bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 uppercase">
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                <span>Live Session</span>
+              <span className={`inline-flex items-center gap-1 text-[8px] px-1.5 py-0.2 rounded-sm uppercase tracking-wider font-semibold border ${
+                isConnected
+                  ? 'bg-emerald-950/70 border-emerald-500/40 text-emerald-300'
+                  : 'bg-amber-950/70 border-amber-500/40 text-amber-300 animate-pulse'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                <span>{isConnected ? 'SIGNAL 100% ONLINE' : 'RECONNECTING...'}</span>
               </span>
             </div>
             <div className="text-[9px] text-white/40 flex items-center gap-1.5 truncate">

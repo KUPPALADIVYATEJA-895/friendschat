@@ -974,6 +974,27 @@ app.post('/api/rooms/:roomId/join', (req, res) => {
   res.json({ success: true, participant, room: safeRoom });
 });
 
+// Post Chat Message REST endpoint (Dual Relay: fallback alongside WebSocket to ensure 100% delivery without delay)
+app.post('/api/rooms/:roomId/messages', (req, res) => {
+  const { roomId } = req.params;
+  const { message } = req.body;
+  const room = rooms.get(roomId);
+
+  if (!room || room.isBurned) {
+    return res.status(404).json({ error: 'Room unavailable' });
+  }
+
+  if (message && message.id) {
+    if (!room.messages.some((m) => m.id === message.id)) {
+      room.messages.push(message);
+      saveRoomsToDisk();
+      broadcastToRoom(roomId, { type: 'chat_message', roomId, message });
+    }
+  }
+
+  res.json({ success: true });
+});
+
 // WebSocket Server for Real-Time Synchronization (dedicated path to prevent HMR or upgrade conflicts)
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 50 * 1024 * 1024 });
 
@@ -1028,6 +1049,11 @@ wss.on('connection', (ws) => {
           break;
         }
 
+        case 'ping': {
+          ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+          break;
+        }
+
         case 'chat_message': {
           const { roomId, message } = data;
           const room = rooms.get(roomId);
@@ -1036,6 +1062,7 @@ wss.on('connection', (ws) => {
           // Prevent duplicate messages
           if (!room.messages.some((m) => m.id === message.id)) {
             room.messages.push(message);
+            saveRoomsToDisk();
           }
 
           broadcastToRoom(roomId, { type: 'chat_message', roomId, message });
@@ -1118,23 +1145,36 @@ wss.on('connection', (ws) => {
     const client = clientSockets.get(ws);
     if (client) {
       const { roomId, participantId } = client;
-      const room = rooms.get(roomId);
-      if (room && !room.isBurned) {
-        const leavingParticipant = room.participants.find((p) => p.id === participantId);
-        const leavingName = leavingParticipant ? leavingParticipant.name : 'Unknown Call';
-        
-        // Broadcast participant left event to remaining active sockets
-        broadcastToRoom(roomId, {
-          type: 'participant_left',
-          roomId,
-          participantId,
-          participantName: leavingName,
-        });
-
-        const safeRoom = { ...room, hostSecret: undefined };
-        broadcastToRoom(roomId, { type: 'room_state', room: safeRoom as Room });
-      }
       clientSockets.delete(ws);
+
+      // Check after 5 seconds if participant reconnected (e.g. browser refresh or network hop)
+      setTimeout(() => {
+        let hasActiveSocket = false;
+        for (const c of clientSockets.values()) {
+          if (c.roomId === roomId && c.participantId === participantId) {
+            hasActiveSocket = true;
+            break;
+          }
+        }
+
+        if (!hasActiveSocket) {
+          const room = rooms.get(roomId);
+          if (room && !room.isBurned) {
+            const leavingParticipant = room.participants.find((p) => p.id === participantId);
+            const leavingName = leavingParticipant ? leavingParticipant.name : 'Peer';
+
+            broadcastToRoom(roomId, {
+              type: 'participant_left',
+              roomId,
+              participantId,
+              participantName: leavingName,
+            });
+
+            const safeRoom = { ...room, hostSecret: undefined };
+            broadcastToRoom(roomId, { type: 'room_state', room: safeRoom as Room });
+          }
+        }
+      }, 5000);
     }
   });
 });

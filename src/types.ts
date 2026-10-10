@@ -140,4 +140,6 @@ export type WSMessage =
   | { type: 'room_burned'; roomId: string; reason: string }
   | { type: 'join_request_received'; request: JoinRequest }
   | { type: 'join_request_response'; requestId: string; approved: boolean; roomId: string }
+  | { type: 'ping' }
+  | { type: 'pong'; timestamp: number }
   | { type: 'error'; message: string };
